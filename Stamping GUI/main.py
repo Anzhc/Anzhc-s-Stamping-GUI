@@ -380,6 +380,12 @@ class ImageEditor(QMainWindow):
 # Main function outside of the ImageEditor class
 def main():
     app = QApplication(sys.argv)
+
+        # Load and apply stylesheet
+    with open('style.css', 'r') as file:
+        stylesheet = file.read()
+        app.setStyleSheet(stylesheet)
+        
     mainWin = ImageEditor()
     mainWin.show()
     mainWin.imagePreview.setFocus()  # Set focus to the imagePreview
