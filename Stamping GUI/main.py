@@ -17,7 +17,6 @@ class CustomGraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
-        self.imageEditor.beginStampRotation(event)
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
@@ -101,10 +100,11 @@ class ImageEditor(QMainWindow):
         self.stampScaleFactor = 1.0
         self.isStampFlipped = False
         self.imagePaths = []  # Store paths of loaded images
+        self.selectedStampPath = None
+        self.scene = None
         self.currentImageIndex = -1  # Current image index
         self.undoStack = []
         self.currentlyRotatingItem = None
-        self.initialMousePos = None
         self.setWindowTitle('Image Stamp Editor')
         self.setGeometry(100, 100, 800, 600)
         self.initUI()
@@ -192,6 +192,7 @@ class ImageEditor(QMainWindow):
                 self.scene.addItem(QGraphicsPixmapItem(pixmap))
                 self.editedScenes[imagePath] = self.scene  # Store the scene
 
+            self.scene.setSceneRect(pixmap.rect().toRectF())  # Unsure if this is the correct place to do this.
             # Display the scene in the QGraphicsView
             self.imagePreview.setScene(self.scene)
             self.imagePreview.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
@@ -254,7 +255,7 @@ class ImageEditor(QMainWindow):
             print(f"Saved edited image to {editedFilename}")
 
     def loadStamps(self):
-        stampsPath = "./stamps"
+        stampsPath = os.path.dirname(__file__) + "/stamps"
         if os.path.exists(stampsPath):
             for filename in os.listdir(stampsPath):
                 if filename.endswith(('.png', '.jpg', '.jpeg')):
@@ -266,7 +267,7 @@ class ImageEditor(QMainWindow):
         self.updateCursorWithStamp(imagePath)
 
     def updateCursorWithStamp(self, imagePath):
-        if imagePath:
+        if imagePath and self.selectedStampPath:
             # Load the stamp image
             pixmap = QPixmap(imagePath)
             # Apply flipping if needed
@@ -278,7 +279,7 @@ class ImageEditor(QMainWindow):
             self.imagePreview.setCursor(QCursor(cursorPixmap))
 
     def placeStampOnImage(self, event):
-        if self.selectedStampPath and not self.currentlyRotatingItem:
+        if self.scene and (self.selectedStampPath and not self.currentlyRotatingItem):
             scenePosition = self.imagePreview.mapToScene(event.position().toPoint())
             pixmap = QPixmap(self.selectedStampPath)
             currentZoom = self.imagePreview.transform().m11()
@@ -292,7 +293,6 @@ class ImageEditor(QMainWindow):
             self.scene.addItem(item)
             self.undoStack.append(AddStampCommand(self.scene, item))
             self.currentlyRotatingItem = item  # Set the item for potential rotation
-            self.initialMousePos = event.pos()  # Store the initial position
             self.imagePreview.setMouseTracking(True)  # Start tracking mouse movement
 
 
@@ -346,42 +346,30 @@ class ImageEditor(QMainWindow):
             self.isStampFlipped = not self.isStampFlipped
             self.updateCursorWithStamp(self.selectedStampPath)
 
-    def beginStampRotation(self, event):
-        if self.currentlyRotatingItem:
-            self.initialMousePos = self.imagePreview.mapToScene(event.pos())
 
     def rotateStamp(self, event):
         if self.currentlyRotatingItem:
-            currentPos = self.imagePreview.mapToScene(event.pos())
-            angleDelta = self.calculateRotationAngle(self.initialMousePos, currentPos)
+            currentPos = self.imagePreview.mapToScene(event.pos()).toPoint()
+            angleDelta = self.calculateRotationAngle(currentPos)
             center = self.currentlyRotatingItem.boundingRect().center()
             transform = QTransform()
             transform.translate(center.x(), center.y())
             transform.rotate(angleDelta)
             transform.translate(-center.x(), -center.y())
             self.currentlyRotatingItem.setTransform(transform)
-            self.initialMousePos = event.pos()
 
     def endStampRotation(self, event):
         self.currentlyRotatingItem = None  # Clear the rotating item
 
 
-    def calculateRotationAngle(self, initialPos, currentPos):
+    def calculateRotationAngle(self, currentPos):
         # Get the item's center in scene coordinates
-        itemCenter = self.currentlyRotatingItem.mapToScene(self.currentlyRotatingItem.boundingRect().center())
-
-        # Calculate the vectors from the item center to the initial and current positions
-        initialVector = initialPos - itemCenter
+        itemCenter = self.currentlyRotatingItem.mapToScene(self.currentlyRotatingItem.boundingRect().center()).toPoint()
+        
         currentVector = currentPos - itemCenter
-
-        # Calculate the angles using atan2
-        initialAngle = atan2(initialVector.y(), initialVector.x())
         currentAngle = atan2(currentVector.y(), currentVector.x())
+        angleDelta = degrees(currentAngle)
 
-        # Calculate the change in angle
-        angleDelta = degrees(currentAngle - initialAngle)
-
-        # Normalize the angleDelta to prevent unnecessary full rotations
         while angleDelta > 180:
             angleDelta -= 360
         while angleDelta < -180:
